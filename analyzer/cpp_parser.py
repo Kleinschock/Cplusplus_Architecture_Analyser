@@ -565,6 +565,9 @@ class CppParser:
         )
         sym_id = graph.add_symbol(sym)
 
+        for p in params:
+            self._add_type_usage_edge(graph, sym, p.type_name, file_path, node.start_point[0] + 1)
+
         graph.add_edge(Edge(
             source_id=class_symbol.id,
             target_id=sym_id,
@@ -607,8 +610,14 @@ class CppParser:
         # Check if it's an out-of-class method definition (e.g., MyClass::method)
         if '::' in name:
             sym_type = SymbolType.METHOD
+            # For deduplication, the base name should just be the method name
+            parts = name.split('::')
+            base_name = parts[-1]
+            qualified_name = "::".join(namespace_stack + parts) if namespace_stack else name
         else:
             sym_type = SymbolType.FUNCTION
+            base_name = name
+            qualified_name = "::".join(namespace_stack + [name]) if namespace_stack else name
 
         is_static = any(
             c.type == 'storage_class_specifier' and _get_text(c, source) == 'static'
@@ -616,20 +625,19 @@ class CppParser:
         )
 
         params = self._extract_parameters(declarator, source)
-        qualified = "::".join(namespace_stack + [name]) if namespace_stack else name
 
         param_sig = ", ".join(f"{p.type_name} {p.name}" for p in params)
-        signature = f"{return_type + ' ' if return_type else ''}{qualified}({param_sig})"
+        signature = f"{return_type + ' ' if return_type else ''}{qualified_name}({param_sig})"
 
         sym = Symbol(
-            name=name,
+            name=base_name,
             symbol_type=sym_type,
             file_path=file_path,
             line=node.start_point[0] + 1,
             end_line=node.end_point[0] + 1,
             column=node.start_point[1],
             language=Lang.CPP,
-            qualified_name=qualified,
+            qualified_name=qualified_name,
             signature=signature,
             return_type=return_type,
             parameters=params,
@@ -637,6 +645,9 @@ class CppParser:
             is_static=is_static,
         )
         sym_id = graph.add_symbol(sym)
+
+        for p in params:
+            self._add_type_usage_edge(graph, sym, p.type_name, file_path, node.start_point[0] + 1)
 
         if parent_symbol:
             graph.add_edge(Edge(
