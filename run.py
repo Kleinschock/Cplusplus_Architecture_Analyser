@@ -84,12 +84,26 @@ def cmd_index(args):
     print(f"  Edges:   {stats['total_edges']}")
 
 
+def cmd_gui(args):
+    """Start the native desktop GUI."""
+    from PySide6.QtWidgets import QApplication
+    from gui.main_window import MainWindow
+
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec())
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog='C++ Architecture Analyser',
         description='Semantic analysis and visualization of C++ codebases',
     )
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
+
+    # gui
+    gui_parser = subparsers.add_parser('gui', help='Start the native PySide6 desktop UI')
 
     # serve
     serve_parser = subparsers.add_parser('serve', help='Start the web UI server')
@@ -105,7 +119,7 @@ def main():
     analyze_parser.add_argument('--depth', '-d', type=int, default=2,
                                 help='Expansion depth (default: 2)')
     analyze_parser.add_argument('--output', '-o', help='Output file path')
-    analyze_parser.add_argument('--format', '-f', choices=['json', 'dot', 'text'],
+    analyze_parser.add_argument('--format', '-f', choices=['json', 'dot', 'text', 'gexf'],
                                 default='text', help='Output format (default: text)')
 
     # index
@@ -115,7 +129,9 @@ def main():
 
     args = parser.parse_args()
 
-    if args.command == 'serve':
+    if args.command == 'gui':
+        cmd_gui(args)
+    elif args.command == 'serve':
         cmd_serve(args)
     elif args.command == 'analyze':
         cmd_analyze(args)

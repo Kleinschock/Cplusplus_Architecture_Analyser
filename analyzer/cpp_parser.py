@@ -573,10 +573,10 @@ class CppParser:
             line=node.start_point[0] + 1,
         ))
 
-        # Extract calls from the function body
+        # Extract references from the function body
         body = _find_child_by_type(node, 'compound_statement')
         if body:
-            self._extract_calls(body, source, file_path, graph, sym)
+            self._extract_references(body, source, file_path, graph, sym)
 
     def _extract_function(self, node: Node, source: bytes, file_path: str,
                           graph: AnalysisGraph, namespace_stack: list[str],
@@ -647,10 +647,10 @@ class CppParser:
                 line=node.start_point[0] + 1,
             ))
 
-        # Extract calls
+        # Extract references
         body = _find_child_by_type(node, 'compound_statement')
         if body:
-            self._extract_calls(body, source, file_path, graph, sym)
+            self._extract_references(body, source, file_path, graph, sym)
 
     def _extract_enum(self, node: Node, source: bytes, file_path: str,
                       graph: AnalysisGraph, namespace_stack: list[str],
@@ -1076,12 +1076,13 @@ class CppParser:
 
         return params
 
-    def _extract_calls(self, body: Node, source: bytes, file_path: str,
-                       graph: AnalysisGraph, caller_symbol: Symbol):
-        """Extract function/method calls from a function body."""
-        call_exprs = _find_descendants_by_type(body, 'call_expression')
+    def _extract_references(self, body: Node, source: bytes, file_path: str,
+                            graph: AnalysisGraph, parent_symbol: Symbol):
+        """Extract function/method calls and generic symbol references from a function body."""
         seen_calls: set[str] = set()
 
+        # 1. Extract Calls
+        call_exprs = _find_descendants_by_type(body, 'call_expression')
         for call in call_exprs:
             callee = call.children[0] if call.children else None
             if not callee:
@@ -1092,7 +1093,6 @@ class CppParser:
                 continue
             seen_calls.add(callee_name)
 
-            # Create a placeholder symbol for the callee
             callee_sym = Symbol(
                 name=callee_name,
                 symbol_type=SymbolType.FUNCTION,
@@ -1104,13 +1104,60 @@ class CppParser:
             callee_id = graph.add_symbol(callee_sym)
 
             graph.add_edge(Edge(
-                source_id=caller_symbol.id,
+                source_id=parent_symbol.id,
                 target_id=callee_id,
                 edge_type=EdgeType.CALLS,
                 file_path=file_path,
                 line=call.start_point[0] + 1,
                 label=f"calls {callee_name}",
             ))
+
+        # 2. Extract General References (identifiers, scoped identifiers)
+        seen_refs: set[str] = set(seen_calls) # Don't double-count calls
+        
+        ignore = {'int', 'float', 'double', 'char', 'bool', 'void', 'long', 'short', 
+                  'unsigned', 'signed', 'auto', 'size_t', 'string', 'wstring', 
+                  'return', 'if', 'else', 'for', 'while', 'do', 'switch', 'case', 
+                  'default', 'break', 'continue', 'true', 'false', 'nullptr', 'this',
+                  'std', 'cout', 'cin', 'endl', 'printf'}
+
+        # Find scoped identifiers (e.g. MyEnum::Value)
+        scoped_ids = _find_descendants_by_type(body, 'qualified_identifier')
+        for sid in scoped_ids:
+            name = _get_text(sid, source)
+            if name in seen_refs or name in ignore: continue
+            seen_refs.add(name)
+            self._add_reference_edge(graph, parent_symbol, name, file_path, sid.start_point[0] + 1)
+            
+        # Find raw identifiers
+        identifiers = _find_descendants_by_type(body, 'identifier')
+        for id_node in identifiers:
+            name = _get_text(id_node, source)
+            # Basic filtering
+            if len(name) < 2 or name in seen_refs or name in ignore: continue
+            seen_refs.add(name)
+            self._add_reference_edge(graph, parent_symbol, name, file_path, id_node.start_point[0] + 1)
+
+    def _add_reference_edge(self, graph: AnalysisGraph, symbol: Symbol,
+                            ref_name: str, file_path: str, line: int):
+        """Add a REFERENCES edge to an unresolved symbol."""
+        ref_sym = Symbol(
+            name=ref_name.split('::')[-1],
+            symbol_type=SymbolType.UNKNOWN,
+            file_path="<unresolved>",
+            line=0,
+            language=Lang.CPP,
+            qualified_name=ref_name,
+        )
+        ref_id = graph.add_symbol(ref_sym)
+        graph.add_edge(Edge(
+            source_id=symbol.id,
+            target_id=ref_id,
+            edge_type=EdgeType.REFERENCES,
+            file_path=file_path,
+            line=line,
+            label=f"refs {ref_name}",
+        ))
 
     def _add_type_usage_edge(self, graph: AnalysisGraph, symbol: Symbol,
                              type_name: str, file_path: str, line: int):

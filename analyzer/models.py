@@ -109,8 +109,15 @@ class Symbol:
         if not self.qualified_name:
             self.qualified_name = self.name
         if not self._id:
-            # Generate unique ID from qualified name + file + line
-            raw = f"{self.qualified_name}:{self.file_path}:{self.line}"
+            # Generate unique semantic ID (ignoring file/line to deduplicate declarations)
+            if self.symbol_type in (SymbolType.FUNCTION, SymbolType.METHOD,
+                                     SymbolType.CONSTRUCTOR, SymbolType.DESTRUCTOR):
+                raw = f"{self.symbol_type.value}:{self.qualified_name}:{self.signature}"
+            elif self.symbol_type in (SymbolType.MEMBER_VARIABLE, SymbolType.GLOBAL_VARIABLE, SymbolType.PARAMETER):
+                # Include class/namespace scope to avoid colliding member variables with same name
+                raw = f"{self.symbol_type.value}:{self.qualified_name}"
+            else:
+                raw = f"{self.symbol_type.value}:{self.qualified_name}"
             self._id = hashlib.md5(raw.encode()).hexdigest()[:12]
 
     @property

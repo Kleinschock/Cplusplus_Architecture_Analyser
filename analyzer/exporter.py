@@ -234,6 +234,58 @@ def to_dot(graph: AnalysisGraph, title: str = "Architecture Graph") -> str:
     return '\n'.join(lines)
 
 
+def to_gexf(graph: AnalysisGraph) -> str:
+    """
+    Export graph to GEXF format (for Gephi).
+    """
+    import xml.etree.ElementTree as ET
+    from xml.dom import minidom
+
+    gexf = ET.Element('gexf', {'xmlns': 'http://www.gexf.net/1.2draft', 'version': '1.2'})
+    meta = ET.SubElement(gexf, 'meta')
+    creator = ET.SubElement(meta, 'creator')
+    creator.text = 'C++ Architecture Analyser'
+
+    graph_el = ET.SubElement(gexf, 'graph', {'mode': 'static', 'defaultedgetype': 'directed'})
+    
+    # Define node attributes
+    attributes = ET.SubElement(graph_el, 'attributes', {'class': 'node'})
+    ET.SubElement(attributes, 'attribute', {'id': 'type', 'title': 'Type', 'type': 'string'})
+    ET.SubElement(attributes, 'attribute', {'id': 'file', 'title': 'File', 'type': 'string'})
+    ET.SubElement(attributes, 'attribute', {'id': 'language', 'title': 'Language', 'type': 'string'})
+
+    nodes_el = ET.SubElement(graph_el, 'nodes')
+    for sym in graph.symbols.values():
+        if sym.symbol_type == SymbolType.INCLUDE:
+            continue
+            
+        node_el = ET.SubElement(nodes_el, 'node', {'id': sym.id, 'label': sym.name})
+        attvalues = ET.SubElement(node_el, 'attvalues')
+        ET.SubElement(attvalues, 'attvalue', {'for': 'type', 'value': sym.symbol_type.value})
+        ET.SubElement(attvalues, 'attvalue', {'for': 'file', 'value': sym.file_path})
+        ET.SubElement(attvalues, 'attvalue', {'for': 'language', 'value': sym.language.value})
+
+    edges_el = ET.SubElement(graph_el, 'edges')
+    for edge in graph.edges:
+        src = graph.get_symbol(edge.source_id)
+        tgt = graph.get_symbol(edge.target_id)
+        if not src or not tgt:
+            continue
+        if src.symbol_type == SymbolType.INCLUDE or tgt.symbol_type == SymbolType.INCLUDE:
+            continue
+            
+        ET.SubElement(edges_el, 'edge', {
+            'id': edge.id,
+            'source': edge.source_id,
+            'target': edge.target_id,
+            'label': edge.edge_type.value
+        })
+
+    rough_string = ET.tostring(gexf, 'utf-8')
+    reparsed = minidom.parseString(rough_string)
+    return reparsed.toprettyxml(indent="  ")
+
+
 def to_summary_text(graph: AnalysisGraph, seed_names: list[str] = None) -> str:
     """
     Generate a human-readable text summary of the graph.
